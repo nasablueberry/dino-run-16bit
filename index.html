@@ -211,6 +211,56 @@
                 "000100000000",
                 "000110000000"
             ],
+            dinoDuck1: [
+                "000000000000",
+                "000000000000",
+                "000000000000",
+                "000000000000",
+                "000000111100",
+                "000001111111",
+                "000001111110",
+                "100011111100",
+                "100111111100",
+                "111111111100",
+                "111111111100",
+                "011111111000",
+                "001100110000",
+                "001000100000"
+            ],
+            dinoDuck2: [
+                "000000000000",
+                "000000000000",
+                "000000000000",
+                "000000000000",
+                "000000111100",
+                "000001111111",
+                "000001111110",
+                "100011111100",
+                "100111111100",
+                "111111111100",
+                "111111111100",
+                "011111111000",
+                "001111110000",
+                "000100000000",
+                "000110000000"
+            ],
+            boss: [
+                "0011111100",
+                "0111111110",
+                "1110000111",
+                "1100110011",
+                "1100110011",
+                "1110000111",
+                "1111111111",
+                "0110000110",
+                "0011111100",
+                "0001111000"
+            ],
+            bossProj: [
+                "101",
+                "010",
+                "101"
+            ],
             cactusSmall: [
                 "00011000",
                 "00111000",
@@ -376,6 +426,17 @@
         let groundOffset = 0;
 
         // Entities
+        // Global Game State
+        let isPaused = false;
+        let screenShake = 0;
+
+        // Boss State
+        let isBossActive = false;
+        let boss = { x: 0, y: 0, w: 40, h: 40, hp: 0, maxHp: 10, dy: 1 };
+        let bossProjectiles = [];
+        let timeSinceLastBoss = 0;
+
+        // Entities
         let obstacles = [];
         let clouds = [];
         let projectiles = [];
@@ -384,6 +445,16 @@
 
         // Cheats / Effects
         let cheatMode = false;
+        let comboCount = 0;
+
+        // Load Storage
+        try {
+            const savedScore = localStorage.getItem('dinoHighScore');
+            if (savedScore) highScore = parseInt(savedScore);
+            // document reference might not be ready if script runs too early? 
+            // Script is at end of body, so it's fine.
+            // But Element might be updated in resetGame too.
+        } catch (e) { }
 
         // Player Object
         const dino = {
@@ -401,15 +472,35 @@
             skinIdx: 0,
             shieldTime: 0,
             doubleScoreTime: 0,
+            isDucking: false,
 
             draw: function () {
-                // Animation logic: swap sprite every 10 frames
-                const sprite = (Math.floor(frames / 8) % 2 === 0 || !this.grounded)
-                    ? Sprites.dinoRun1
-                    : Sprites.dinoRun2;
+                // Animation logic
+                let sprite;
+                if (this.isDucking) {
+                    sprite = (Math.floor(frames / 8) % 2 === 0) ? Sprites.dinoDuck1 : Sprites.dinoDuck2;
+                    this.h = 20; // Reduce height visually (logic handled elsewhere too)
+                } else {
+                    this.h = 28;
+                    sprite = (Math.floor(frames / 8) % 2 === 0 || !this.grounded)
+                        ? Sprites.dinoRun1
+                        : Sprites.dinoRun2;
+                }
 
                 const color = cheatMode ? "#ffff00" : SKINS[this.skinIdx];
-                drawSprite(ctx, sprite, this.x, this.y - this.h, this.scale, color);
+                // Always draw from base Y - 28 to keep alignment even when ducking
+                // Duck sprite is padded? No, defined at top. 
+                // We should rely on this.y being ground.
+                // If ducking, h is 20. y - h = y - 20.
+                // But normal is y - 28.
+                // We want the feet at the same place.
+                // If sprite is top-aligned in 16x16 box, we need to adjust.
+                // Let's simplified: Draw at y - 28 always for sprite alignment, but collision box changes.
+
+                // Be careful: drawSprite draws at x, y. 
+                // If we pass y - 28, it draws from top.
+                // Start drawing at y - 28 ensures feet are at y (since sprite is ~14px * 2 = 28).
+                drawSprite(ctx, sprite, this.x, this.y - 28, this.scale, color);
 
                 // Draw Shield Bubble
                 if (this.shieldTime > 0) {
@@ -435,6 +526,13 @@
                     this.dy += this.gravity;
                     this.grounded = false;
                 } else {
+                    if (!this.grounded) {
+                        // Just landed
+                        if (comboCount > 0) {
+                            // Maybe sound effect for ending combo?
+                            comboCount = 0;
+                        }
+                    }
                     this.y = GROUND_Y;
                     this.dy = 0;
                     this.grounded = true;
@@ -442,11 +540,12 @@
             },
 
             jump: function () {
-                if (this.grounded) {
+                if (this.grounded && !this.isDucking) {
                     this.dy = this.jumpPower;
                     this.grounded = false;
                     AudioSys.jump();
                     spawnDust(this.x + 10, this.y);
+                    if (navigator.vibrate) navigator.vibrate(20);
                 }
             },
 
@@ -455,22 +554,27 @@
                     AudioSys.shoot();
                     projectiles.push({
                         x: this.x + 20,
-                        y: this.y - 16,
+                        y: this.y - (this.isDucking ? 10 : 16),
                         w: 8, h: 8,
                         dx: 6
                     });
+                    if (navigator.vibrate) navigator.vibrate(10);
+                    screenShake = 2;
                 }
             }
         };
 
         function spawnDust(x, y) {
-            for (let i = 0; i < 5; i++) {
+            for (let i = 0; i < 12; i++) {
+                let angle = (Math.PI * 2 / 12) * i;
+                let speed = Math.random() * 2 + 1;
                 particles.push({
                     x: x,
                     y: y,
-                    dx: (Math.random() - 0.5) * 2,
-                    dy: -Math.random(),
-                    life: 20
+                    dx: Math.cos(angle) * speed,
+                    dy: Math.sin(angle) * speed,
+                    life: 30 + Math.random() * 15,
+                    color: Math.random() > 0.5 ? '#ffff00' : '#ff5500' // Fire colors
                 });
             }
         }
@@ -500,7 +604,8 @@
                 y: GROUND_Y,
                 type: type,
                 scale: 2,
-                dead: false
+                dead: false,
+                isGlitch: (Math.random() > 0.8 && type === 'bird') // 20% chance for glitch bird
             };
 
             if (type === 'cactus') {
@@ -553,6 +658,7 @@
             dino.dy = 0;
             dino.shieldTime = 0;
             dino.doubleScoreTime = 0;
+            comboCount = 0;
 
             obstacles = [];
             clouds = [];
@@ -571,6 +677,7 @@
 
             AudioSys.init();
             spawnCloud();
+            screenShake = 0;
 
             // Start loop
             if (gameLoop) cancelAnimationFrame(gameLoop);
@@ -610,7 +717,10 @@
          * MAIN LOOP
          */
         function loop() {
-            if (!isPlaying) return;
+            if (!isPlaying || isPaused) {
+                if (isPaused) requestAnimationFrame(loop); // Keep requesting to catch unpause
+                return;
+            }
 
             gameLoop = requestAnimationFrame(loop);
             frames++;
@@ -628,13 +738,79 @@
             }
 
             // Spawn Spawn
-            const lastOb = obstacles[obstacles.length - 1];
-            if (!lastOb || (CANVAS_WIDTH - lastOb.x > (Math.random() * 100 + 80 * (speed / 2)))) {
-                let roll = Math.random();
-                if (roll < 0.02) spawnObstacle();
-                else if (roll < 0.023) spawnGem();
-                else if (roll < 0.025) spawnPowerup();
+            // Spawn Logic (Only if Boss inactive)
+            if(!isBossActive) {
+                // Check Boss Spawn
+                if(score > 2000 && score % 2000 < 100 && timeSinceLastBoss > 3000) {
+                     // Spawn Boss
+                     isBossActive = true;
+                     boss.hp = boss.maxHp;
+                     boss.x = CANVAS_WIDTH - 60;
+                     boss.y = 50;
+                     boss.dy = 1;
+                     timeSinceLastBoss = 0;
+                     // Clear obstacles for fair fight
+                     obstacles = [];
+                     
+                     // Boss Warning
+                     let warning = document.createElement('div');
+                     warning.style.position = 'absolute';
+                     warning.style.top = '50%';
+                     warning.style.left = '50%';
+                     warning.style.transform = 'translate(-50%, -50%)';
+                     warning.style.color = '#ff0000';
+                     warning.style.fontFamily = "'Press Start 2P', monospace";
+                     warning.style.fontSize = '30px';
+                     warning.style.textShadow = '0 0 10px #ff0000';
+                     warning.innerText = "WARNING: GLITCH CORE";
+                     document.body.appendChild(warning);
+                     setTimeout(() => warning.remove(), 2000);
+                } else {
+                    const lastOb = obstacles[obstacles.length - 1];
+                    if (!lastOb || (CANVAS_WIDTH - lastOb.x > (Math.random() * 100 + 80 * (speed / 2)))) {
+                        let roll = Math.random();
+                        if (roll < 0.02) spawnObstacle();
+                        else if (roll < 0.023) spawnGem();
+                        else if (roll < 0.025) spawnPowerup();
+                    }
+                }
+            } else {
+                // Update Boss
+                boss.y += boss.dy;
+                if(boss.y < 20 || boss.y > 100) boss.dy *= -1;
+                
+                // Boss Shoot
+                if(Math.random() < 0.02) {
+                     bossProjectiles.push({
+                         x: boss.x,
+                         y: boss.y + 20,
+                         dx: -4,
+                         w: 12, h: 4
+                     });
+                     AudioSys.shoot(); 
+                }
+                
+                // Boss Collision (Player Proj vs Boss)
+                for(let i=projectiles.length-1; i>=0; i--) {
+                    let p = projectiles[i];
+                    if(p.x + p.w > boss.x && p.x < boss.x + boss.w && p.y + p.h > boss.y && p.y < boss.y + boss.h) {
+                        boss.hp--;
+                        projectiles.splice(i, 1);
+                        screenShake = 5;
+                        AudioSys.jump(); // Hit sound
+                        // Boss Dead?
+                        if(boss.hp <= 0) {
+                            isBossActive = false;
+                            score += 1000;
+                            timeSinceLastBoss = 0;
+                            screenShake = 20;
+                            spawnDust(boss.x + 20, boss.y + 20); // Big Boom
+                        }
+                    }
+                }
             }
+            
+            if(!isBossActive) timeSinceLastBoss++;
 
             // Spawn clouds
             if (Math.random() < 0.01) spawnCloud();
@@ -652,14 +828,50 @@
             if (cheatMode) effectsText += "CHEAT ";
             if (dino.shieldTime > 0) effectsText += "SHIELD ";
             if (dino.doubleScoreTime > 0) effectsText += "2X ";
+            if (comboCount > 1) effectsText += "COMBO x" + comboCount + " ";
             document.getElementById('effects-display').innerText = effectsText;
 
 
             // 2. DRAW
 
-            // Clear Screen (Sky)
+            // Draw Sky
             ctx.fillStyle = COLORS.sky;
             ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            // Screen Shake Apply
+            ctx.save();
+            if (screenShake > 0) {
+                let mag = screenShake;
+                let dx = (Math.random() - 0.5) * mag;
+                let dy = (Math.random() - 0.5) * mag;
+                ctx.translate(dx, dy);
+                screenShake *= 0.9; // Decay
+                if (screenShake < 0.5) screenShake = 0;
+            }
+
+            // Draw Parallax City
+            // Simple procedural city silhouette
+            ctx.fillStyle = "#1a0b1c"; // Darker than sky, silhouette
+            const cityOffset = (groundOffset * 0.2) % 40;
+            // We just draw rectangles at varying heights
+            // To make it scroll, we use an offset. 
+            // Ideally we need a persistent array. Let's cheat with a math function based on x + offset
+            for (let cx = 0; cx < CANVAS_WIDTH + 40; cx += 20) {
+                let h = 20 + Math.abs(Math.sin(cx * 0.1 + groundOffset * 0.05)) * 50;
+                if (cx % 60 === 0) h += 40; // Skyscrapers
+                let drawX = cx - (groundOffset * 0.2) % 20;
+                ctx.fillRect(drawX, GROUND_Y - h, 24, h);
+
+                // Windows
+                ctx.fillStyle = "#552255";
+                if (cx % 40 === 0) {
+                    for (let wy = GROUND_Y - h + 4; wy < GROUND_Y; wy += 8) {
+                        ctx.fillRect(drawX + 4, wy, 4, 4);
+                        ctx.fillRect(drawX + 12, wy, 4, 4);
+                    }
+                }
+                ctx.fillStyle = "#1a0b1c";
+            }
 
             // Draw Clouds (Parallax)
             ctx.fillStyle = COLORS.cloud;
@@ -715,6 +927,9 @@
                         hit = true;
                         spawnDust(ob.x + ob.w / 2, ob.y - ob.h / 2);
                         AudioSys.collect();
+                        comboCount++;
+                        // Bonus points for kill
+                        score += 10 * (1 + Math.floor(comboCount / 5));
                         break;
                     }
                 }
@@ -776,9 +991,17 @@
                 let spriteToDraw = ob.sprite;
                 if (ob.type === 'bird') {
                     spriteToDraw = (Math.floor(frames / 15) % 2 === 0) ? Sprites.bird1 : Sprites.bird2;
+                    // Glitch Bird Variant (Random Y fluctuation)
+                    if(ob.isGlitch) {
+                         ob.y += Math.sin(frames * 0.2) * 2;
+                         // Color flicker handled in draw? No, we need to pass color.
+                    }
                 }
 
-                drawSprite(ctx, spriteToDraw, ob.x, ob.y - ob.h, ob.scale, ob.type === 'bird' ? COLORS.bird : COLORS.cactus);
+                let color = ob.type === 'bird' ? COLORS.bird : COLORS.cactus;
+                if(ob.isGlitch) color = (Math.floor(frames/4)%2===0) ? "#ff00ff" : "#00ffff";
+
+                drawSprite(ctx, spriteToDraw, ob.x, ob.y - ob.h, ob.scale, color);
 
                 let dinoRect = { x: dino.x, y: dino.y, w: dino.w, h: dino.h };
                 let obRect = { x: ob.x, y: ob.y, w: ob.w, h: ob.h };
@@ -787,10 +1010,16 @@
                     if (!cheatMode && dino.shieldTime <= 0) {
                         isPlaying = false;
                         AudioSys.die();
+                        if (navigator.vibrate) navigator.vibrate(300);
+                        screenShake = 10;
+
+                        // Save High Score
                         if (score > highScore) {
                             highScore = score;
                             document.getElementById('high-score-display').innerText = highScore.toString().padStart(5, '0');
+                            try { localStorage.setItem('dinoHighScore', highScore); } catch (e) { }
                         }
+
                         document.getElementById('final-score').innerText = "SCORE: " + score;
                         document.getElementById('game-over-screen').classList.remove('hidden');
                         return;
@@ -807,16 +1036,66 @@
                 }
             }
 
+            // Draw Boss
+            if(isBossActive) {
+                // Draw Boss
+                drawSprite(ctx, Sprites.boss, boss.x, boss.y, 4, "#ff0000"); // Red Boss
+                // HP Bar
+                ctx.fillStyle = "#550000";
+                ctx.fillRect(boss.x, boss.y - 10, 40, 4);
+                ctx.fillStyle = "#ff0000";
+                ctx.fillRect(boss.x, boss.y - 10, 40 * (boss.hp / boss.maxHp), 4);
+                
+                // Draw Boss Proj
+                for(let i=bossProjectiles.length-1; i>=0; i--) {
+                    let bp = bossProjectiles[i];
+                    bp.x += bp.dx;
+                    ctx.fillStyle = "#ff0000";
+                    ctx.fillRect(bp.x, bp.y, bp.w, bp.h);
+                    
+                    if(bp.x < 0) bossProjectiles.splice(i, 1);
+                    
+                    // Hit Player?
+                    let pRect = {x: bp.x, y: bp.y + bp.h, w: bp.w, h: bp.h}; // y as bottom
+                    let dinoRect = { x: dino.x, y: dino.y, w: dino.w, h: dino.h };
+                    if(checkCollision(dinoRect, pRect)) {
+                         if (!cheatMode && dino.shieldTime <= 0) {
+                             // Copied death logic
+                            isPlaying = false;
+                            AudioSys.die();
+                            if (navigator.vibrate) navigator.vibrate(300);
+                            screenShake = 10;
+                            // Save High Score
+                            if (score > highScore) {
+                                highScore = score;
+                                document.getElementById('high-score-display').innerText = highScore.toString().padStart(5, '0');
+                                try { localStorage.setItem('dinoHighScore', highScore); } catch (e) { }
+                            }
+                            document.getElementById('final-score').innerText = "SCORE: " + score;
+                            document.getElementById('game-over-screen').classList.remove('hidden');
+                            return;
+                         } else if (dino.shieldTime > 0) {
+                             bossProjectiles.splice(i, 1);
+                             dino.shieldTime = 0;
+                         }
+                    }
+                }
+            }
+            
             // Particles
-            ctx.fillStyle = "#ffffff";
             for (let i = particles.length - 1; i >= 0; i--) {
                 let p = particles[i];
                 p.x += p.dx;
                 p.y += p.dy;
                 p.life--;
-                if (p.life % 2 === 0) ctx.fillRect(p.x, p.y, 2, 2);
+
+                ctx.fillStyle = p.color || "#ffffff";
+                if (p.life > 0) ctx.fillRect(p.x, p.y, 2, 2);
+
                 if (p.life <= 0) particles.splice(i, 1);
             }
+
+            ctx.restore(); // Restore Shake
         }
 
         /**
@@ -833,52 +1112,108 @@
             }
             // Even if playing, handle these:
 
-            if (!isPlaying) return; // Wait, we just handled reset above. Safe to return if not playing logic follows.
+            if (!isPlaying) return;
 
             if (e.code === 'Space' || e.code === 'ArrowUp') {
                 dino.jump();
                 e.preventDefault();
             }
+            if (e.code === 'ArrowDown') {
+                dino.isDucking = true;
+                e.preventDefault();
+            }
             if (e.code === 'KeyF' || e.code === 'KeyZ') {
                 dino.shoot();
+            }
+            if (e.code === 'KeyP' || e.code === 'Escape') {
+                togglePause();
             }
             if (e.code === 'KeyC') {
                 cheatMode = !cheatMode;
             }
             if (e.key >= '1' && e.key <= '4') {
-                dino.skinIdx = parseInt(e.key) - 1;
+                 let idx = parseInt(e.key) - 1;
+                 // Skin Unlocks: 0 (Green) always, 1 (Cyan) > 1000, 2 (Pink) > 2500, 3 (White) > 5000
+                 let required = [0, 1000, 2500, 5000];
+                 if(highScore >= required[idx]) {
+                     dino.skinIdx = idx;
+                     if(navigator.vibrate) navigator.vibrate(50);
+                 } else {
+                     // Locked feedback?
+                     if(navigator.vibrate) navigator.vibrate([50,50,50]); // Error buzz
+                 }
             }
         }
 
         window.addEventListener('keydown', handleInput);
 
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'ArrowDown') dino.isDucking = false;
+        });
+
+        function togglePause() {
+            if (!isPlaying) return;
+            isPaused = !isPaused;
+            // Draw Pause Overlay if paused
+            if (isPaused) {
+                ctx.fillStyle = "rgba(0,0,0,0.5)";
+                ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                ctx.fillStyle = "#fff";
+                ctx.font = "16px 'Press Start 2P'";
+                ctx.fillText("SIGNAL LOST", CANVAS_WIDTH / 2 - 60, CANVAS_HEIGHT / 2);
+            } else {
+                loop();
+            }
+        }
+
         const wrapper = document.getElementById('game-wrapper');
+        // Swipe Detection variables
+        let touchStartY = 0;
+
         const touchHandler = (e) => {
+            if (e.type === 'touchstart') {
+                touchStartY = e.touches[0].clientY;
+            }
+
+            if (e.type === 'touchend') {
+                // Check swipe
+                let touchEndY = e.changedTouches[0].clientY;
+                if (touchEndY - touchStartY > 30) {
+                    // Swipe Down
+                    dino.isDucking = true;
+                    setTimeout(() => dino.isDucking = false, 500); // Auto-stand after 500ms on mobile
+                    return;
+                }
+            }
+
             if (!isPlaying) {
                 resetGame();
             } else {
-                // Get click/touch position relative to the element
-                const rect = wrapper.getBoundingClientRect();
-                let clientX = e.clientX;
+                if (e.type !== 'touchend') {
+                    // Get click/touch position relative to the element
+                    const rect = wrapper.getBoundingClientRect();
+                    let clientX = e.clientX;
 
-                // If it's a touch event, it might have multiple touches, take the first changed one
-                if (e.changedTouches && e.changedTouches.length > 0) {
-                    clientX = e.changedTouches[0].clientX;
-                }
+                    // If it's a touch event, it might have multiple touches, take the first changed one
+                    if (e.changedTouches && e.changedTouches.length > 0) {
+                        clientX = e.changedTouches[0].clientX;
+                    }
 
-                const x = clientX - rect.left;
+                    const x = clientX - rect.left;
 
-                // Split screen controls: Left half Shoot, Right half Jump
-                if (x < rect.width / 2) {
-                    dino.shoot();
-                } else {
-                    dino.jump();
+                    // Split screen controls: Left half Shoot, Right half Jump
+                    if (x < rect.width / 2) {
+                        dino.shoot();
+                    } else {
+                        dino.jump();
+                    }
                 }
             }
-            e.preventDefault();
+            if (e.cancelable) e.preventDefault();
         };
         wrapper.addEventListener('mousedown', touchHandler);
         wrapper.addEventListener('touchstart', touchHandler, { passive: false });
+        wrapper.addEventListener('touchend', touchHandler, { passive: false });
 
         // Initial render call to show background before start
         ctx.fillStyle = COLORS.sky;
@@ -891,4 +1226,3 @@
 </body>
 
 </html>
-
