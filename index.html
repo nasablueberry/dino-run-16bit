@@ -742,7 +742,7 @@
             // Spawn Logic (Only if Boss inactive)
             if(!isBossActive) {
                 // Check Boss Spawn
-                if(score > 2000 && score % 2000 < 100 && timeSinceLastBoss > 3000) {
+                if(score > 500 && score % 500 < 100 && timeSinceLastBoss > 500) {
                      // Spawn Boss
                      isBossActive = true;
                      boss.hp = boss.maxHp;
@@ -1227,4 +1227,5 @@
 </body>
 
 </html>
+
 
