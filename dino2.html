@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dino Runner 2D - 16 Bit Edition</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #101010;
+            overflow: hidden;
+            font-family: 'Press Start 2P', cursive;
+            user-select: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #game-wrapper {
+            position: relative;
+            /* 16:9 aspect ratio container */
+            width: 90vw;
+            max-width: 960px;
+            aspect-ratio: 4/3;
+            background: #000;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            border: 4px solid #444;
+            border-radius: 4px;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            /* Critical for pixel art: keep edges sharp when scaling up */
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-crisp-edges;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        /* CRT Scanline Overlay */
+        /* CRT Scanline Overlay - Intense Dystopian */
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom,
+                    rgba(18, 16, 16, 0),
+                    rgba(18, 16, 16, 0) 50%,
+                    rgba(0, 0, 0, 0.4) 50%,
+                    rgba(0, 0, 0, 0.4));
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Vignette for old TV feel */
+        .vignette {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.85);
+            pointer-events: none;
+            z-index: 11;
+            border-radius: 4px;
+            background: radial-gradient(circle, rgba(100, 0, 100, 0.1) 0%, rgba(0, 0, 0, 0.4) 100%);
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: #0ff;
+            text-shadow: 2px 2px #000, 0 0 10px #0ff;
+            font-size: 16px;
+            /* Scaled relative to canvas */
+            z-index: 20;
+            text-align: right;
+        }
+
+        #start-screen,
+        #game-over-screen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #0ff;
+            text-shadow: 2px 2px 0 #000, 0 0 8px #f0f;
+            background: rgba(20, 0, 40, 0.9);
+            padding: 24px;
+            border: 4px solid #f0f;
+            box-shadow: 0 0 20px #f0f;
+            z-index: 30;
+            min-width: 280px;
+        }
+
+        h1 {
+            font-size: 24px;
+            color: #f0f;
+            margin: 0 0 20px 0;
+            text-transform: uppercase;
+            text-shadow: 3px 3px 0 #000;
+        }
+
+        p {
+            font-size: 12px;
+            line-height: 1.8;
+            color: #fff;
+            margin: 10px 0;
+        }
+
+        .blink {
+            animation: blinker 0.8s steps(2, start) infinite;
+            color: #0ff;
+            cursor: pointer;
+            margin-top: 20px;
+            text-shadow: 0 0 5px #0ff;
+        }
+
+        @keyframes blinker {
+            to {
+                visibility: hidden;
+            }
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="game-wrapper">
+        <div class="scanlines"></div>
+        <div class="vignette"></div>
+
+        <div id="ui-layer">
+            <span id="score-display">00000</span>
+            <span style="font-size: 10px; color: #f0f; display: block; margin-top:5px;">HI <span
+                    id="high-score-display">00000</span></span>
+            <div id="effects-display"
+                style="margin-top: 10px; font-size: 10px; color: #ffff00; text-shadow: 0 0 5px red;"></div>
+        </div>
+
+        <div id="start-screen">
+            <h1>NEON RUN</h1>
+            <p>DYSTOPIAN EDITION</p>
+            <p style="color: #aaa; font-size: 10px;">SPACE / UP - JUMP</p>
+            <p style="color: #aaa; font-size: 10px;">F - SHOOT | 1-4 - SKINS | C - CHEAT</p>
+            <p class="blink" id="start-btn">INSERT CREDITS</p>
+        </div>
+
+        <div id="game-over-screen" class="hidden">
+            <h1 style="color: #f00; text-shadow: 0 0 10px red;">SYSTEM FAILURE</h1>
+            <p id="final-score">SCORE: 0</p>
+            <p class="blink" id="restart-btn" style="color: #f00;">REBOOT</p>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script>
+        /**
+         * SPRITE DEFINITIONS (Binary Art)
+         * 1 = Drawn pixel, 0 = Transparent
+         * Designed for a 16-bit feel
+         */
+        const Sprites = {
+            dinoRun1: [
+                "000000111100",
+                "000001111111",
+                "000001111110",
+                "000001111100",
+                "000001111100",
+                "000001111100",
+                "100011111100",
+                "100111111100",
+                "111111111100",
+                "111111111100",
+                "011111111000",
+                "001111110000",
+                "001100110000",
+                "001000100000"
+            ],
+            dinoRun2: [
+                "000000111100",
+                "000001111111",
+                "000001111110",
+                "000001111100",
+                "000001111100",
+                "000001111100",
+                "100011111100",
+                "100111111100",
+                "111111111100",
+                "111111111100",
+                "011111111000",
+                "001111110000",
+                "000100000000",
+                "000110000000"
+            ],
+            cactusSmall: [
+                "00011000",
+                "00111000",
+                "01111100",
+                "11111100",
+                "11111100",
+                "01111110",
+                "00111110",
+                "00111100",
+                "00111100",
+                "00111100"
+            ],
+            cactusBig: [
+                "000110000",
+                "000110000",
+                "001111000",
+                "011111000",
+                "111111001",
+                "111111011",
+                "011111111",
+                "001111110",
+                "001111000",
+                "001111000",
+                "001111000",
+                "001111000"
+            ],
+            bird1: [
+                "00000011",
+                "00001110",
+                "00111100",
+                "11111000",
+                "00110000"
+            ],
+            bird2: [
+                "00000011",
+                "00001110",
+                "00111100",
+                "00000000",
+                "00111000"
+            ],
+            gem: [
+                "0001000",
+                "0011100",
+                "0111110",
+                "1111111",
+                "0111110",
+                "0011100",
+                "0001000"
+            ],
+            shield: [
+                "0011100",
+                "0111110",
+                "1100011",
+                "1100011",
+                "1100011",
+                "0111110",
+                "0011100"
+            ],
+            double: [
+                "0011110",
+                "0100001",
+                "0001110",
+                "0011000",
+                "0111111",
+                "0000000"
+            ],
+            projectile: [
+                "1111",
+                "1111",
+                "1111",
+                "1111"
+            ]
+        };
+
+        /**
+         * CONFIGURATION
+         * Retro Console Resolution: 320x224 (Genesis/Mega Drive)
+         */
+        const CANVAS_WIDTH = 320;
+        const CANVAS_HEIGHT = 224;
+        const GROUND_Y = 190;
+
+        const COLORS = {
+            sky: "#2b102f",        // Dark Purple Dystopian Sky
+            ground: "#111111",     // Dark Asphalt
+            groundDark: "#ff00ff", // Neon Magenta Grid Highlights
+            cactus: "#00ff00",     // Matrix Green Glitch Spikes
+            bird: "#ff0055",       // Neon Red Enemy
+            cloud: "#443355",      // Dark Smog
+            gem: "#00ffff",        // Cyan Neon
+            shield: "#0088ff",     // Electric Blue
+            double: "#ff00ff",     // Magenta
+            projectile: "#ffff00"  // Bright Yellow Laser
+        };
+
+        const SKINS = [
+            "#00ff00", // Matrix Green
+            "#00ffff", // Cyber Cyan
+            "#ff00ff", // Neon Pink
+            "#ffffff"  // Pure White
+        ];
+
+        /**
+         * AUDIO SYSTEM (Web Audio API)
+         */
+        const AudioSys = {
+            ctx: null,
+            init: function () {
+                window.AudioContext = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioContext();
+            },
+            playTone: function (freq, type, duration, volStart = 0.1, volEnd = 0.01) {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                gain.gain.setValueAtTime(volStart, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(volEnd, this.ctx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + duration);
+            },
+            jump: function () { this.playTone(150, 'square', 0.1, 0.1, 0.01); },
+            die: function () {
+                if (!this.ctx) return;
+                this.playTone(300, 'sawtooth', 0.5, 0.2, 0.001);
+            },
+            score: function () {
+                if (!this.ctx) return;
+                this.playTone(600, 'sine', 0.1);
+                setTimeout(() => this.playTone(900, 'sine', 0.2), 100);
+            },
+            shoot: function () { this.playTone(400, 'square', 0.05, 0.1, 0.001); },
+            collect: function () { this.playTone(800, 'sine', 0.15, 0.1, 0.01); },
+            powerup: function () {
+                if (!this.ctx) return;
+                this.playTone(400, 'triangle', 0.1);
+                setTimeout(() => this.playTone(600, 'triangle', 0.1), 100);
+                setTimeout(() => this.playTone(800, 'triangle', 0.2), 200);
+            }
+        };
+
+        /**
+         * GAME ENGINE
+         */
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set internal resolution low for pixel look
+        canvas.width = CANVAS_WIDTH;
+        canvas.height = CANVAS_HEIGHT;
+
+        // Game State
+        let gameLoop;
+        let frames = 0;
+        let score = 0;
+        let highScore = 0;
+        let speed = 2.5;
+        let isPlaying = false;
+        let particles = [];
+        let groundOffset = 0;
+
+        // Entities
+        let obstacles = [];
+        let clouds = [];
+        let projectiles = [];
+        let gems = [];
+        let powerups = [];
+
+        // Cheats / Effects
+        let cheatMode = false;
+
+        // Player Object
+        const dino = {
+            x: 30,
+            y: GROUND_Y,
+            w: 24, // width scaled (sprite is 12px wide * 2 scale)
+            h: 28, // height scaled
+            dy: 0,
+            jumpPower: -5.5,
+            gravity: 0.25,
+            grounded: true,
+            scale: 2, // Pixel scale factor
+
+            // New Features
+            skinIdx: 0,
+            shieldTime: 0,
+            doubleScoreTime: 0,
+
+            draw: function () {
+                // Animation logic: swap sprite every 10 frames
+                const sprite = (Math.floor(frames / 8) % 2 === 0 || !this.grounded)
+                    ? Sprites.dinoRun1
+                    : Sprites.dinoRun2;
+
+                const color = cheatMode ? "#ffff00" : SKINS[this.skinIdx];
+                drawSprite(ctx, sprite, this.x, this.y - this.h, this.scale, color);
+
+                // Draw Shield Bubble
+                if (this.shieldTime > 0) {
+                    ctx.strokeStyle = "#4488ff";
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(this.x + 12, this.y - 14, 18, 0, Math.PI * 2);
+                    ctx.stroke();
+                    if (this.shieldTime < 60 && Math.floor(frames / 5) % 2 === 0) {
+                        ctx.strokeStyle = "rgba(0,0,0,0)";
+                    }
+                }
+            },
+
+            update: function () {
+                if (this.shieldTime > 0) this.shieldTime--;
+                if (this.doubleScoreTime > 0) this.doubleScoreTime--;
+
+                // Physics
+                this.y += this.dy;
+
+                if (this.y < GROUND_Y) {
+                    this.dy += this.gravity;
+                    this.grounded = false;
+                } else {
+                    this.y = GROUND_Y;
+                    this.dy = 0;
+                    this.grounded = true;
+                }
+            },
+
+            jump: function () {
+                if (this.grounded) {
+                    this.dy = this.jumpPower;
+                    this.grounded = false;
+                    AudioSys.jump();
+                    spawnDust(this.x + 10, this.y);
+                }
+            },
+
+            shoot: function () {
+                if (projectiles.length < 3) {
+                    AudioSys.shoot();
+                    projectiles.push({
+                        x: this.x + 20,
+                        y: this.y - 16,
+                        w: 8, h: 8,
+                        dx: 6
+                    });
+                }
+            }
+        };
+
+        function spawnDust(x, y) {
+            for (let i = 0; i < 5; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    dx: (Math.random() - 0.5) * 2,
+                    dy: -Math.random(),
+                    life: 20
+                });
+            }
+        }
+
+        /**
+         * HELPER: Draw Binary Sprite
+         */
+        function drawSprite(context, spriteMap, x, y, scale, color) {
+            context.fillStyle = color;
+            for (let r = 0; r < spriteMap.length; r++) {
+                const row = spriteMap[r];
+                for (let c = 0; c < row.length; c++) {
+                    if (row[c] === '1') {
+                        context.fillRect(x + c * scale, y + r * scale, scale, scale);
+                    }
+                }
+            }
+        }
+
+        /**
+         * MANAGERS
+         */
+        function spawnObstacle() {
+            const type = Math.random() > 0.7 ? 'bird' : 'cactus';
+            let obstacle = {
+                x: CANVAS_WIDTH + 20,
+                y: GROUND_Y,
+                type: type,
+                scale: 2,
+                dead: false
+            };
+
+            if (type === 'cactus') {
+                obstacle.sprite = Math.random() > 0.5 ? Sprites.cactusBig : Sprites.cactusSmall;
+                obstacle.y = GROUND_Y;
+                obstacle.w = obstacle.sprite[0].length * 2;
+                obstacle.h = obstacle.sprite.length * 2;
+            } else {
+                obstacle.sprite = Sprites.bird1;
+                const heights = [30, 50, 10]; // offset from ground
+                obstacle.y = GROUND_Y - heights[Math.floor(Math.random() * heights.length)];
+                obstacle.w = obstacle.sprite[0].length * 2;
+                obstacle.h = obstacle.sprite.length * 2;
+            }
+
+            obstacles.push(obstacle);
+        }
+
+        function spawnCloud() {
+            clouds.push({
+                x: CANVAS_WIDTH + 50,
+                y: Math.random() * 100 + 20,
+                w: 40,
+                h: 12,
+                speed: Math.random() * 0.5 + 0.2
+            });
+        }
+
+        function spawnGem() {
+            gems.push({
+                x: CANVAS_WIDTH + 20,
+                y: GROUND_Y - 40,
+                w: 14, h: 14,
+                value: 100
+            });
+        }
+
+        function spawnPowerup() {
+            const type = Math.random() > 0.5 ? 'shield' : 'double';
+            powerups.push({
+                x: CANVAS_WIDTH + 20,
+                y: GROUND_Y - 30, // floating
+                w: 14, h: 14,
+                type: type
+            });
+        }
+
+        function resetGame() {
+            dino.y = GROUND_Y;
+            dino.dy = 0;
+            dino.shieldTime = 0;
+            dino.doubleScoreTime = 0;
+
+            obstacles = [];
+            clouds = [];
+            particles = [];
+            projectiles = [];
+            gems = [];
+            powerups = [];
+
+            score = 0;
+            frames = 0;
+            speed = 2.5;
+            isPlaying = true;
+
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('game-over-screen').classList.add('hidden');
+
+            AudioSys.init();
+            spawnCloud();
+
+            // Start loop
+            if (gameLoop) cancelAnimationFrame(gameLoop);
+            loop();
+        }
+
+        function checkCollision(rect1, rect2) {
+            const margin = 4;
+            // rect1/rect2 coords are mixed bottom/top-left logic in this codebase.
+            // We'll normalize to Check AABB assuming (x,y) is top-left of the bounding box
+            // For Dino: x=x, y=y-h (since y is ground)
+            // For Obstacle: x=x, y=y-h (since y is ground)
+
+            let r1x = rect1.x;
+            let r1y = rect1.y - rect1.h; // Top
+            let r1w = rect1.w;
+            let r1h = rect1.h;
+
+            let r2x = rect2.x;
+            let r2y = rect2.y - rect2.h; // Top, if y is bottom
+            let r2w = rect2.w;
+            let r2h = rect2.h;
+
+            if (rect2.isTopLeft) { // Special flag if we want
+                r2y = rect2.y; // Already top-left
+            }
+
+            return (
+                r1x < r2x + r2w - margin &&
+                r1x + r1w - margin > r2x &&
+                r1y < r2y + r2h - margin &&
+                r1y + r1h - margin > r2y
+            );
+        }
+
+        /**
+         * MAIN LOOP
+         */
+        function loop() {
+            if (!isPlaying) return;
+
+            gameLoop = requestAnimationFrame(loop);
+            frames++;
+
+            // 1. UPDATE
+            dino.update();
+
+            // Difficulty scaling
+            let currentSpeed = speed;
+            if (cheatMode) currentSpeed *= 1.5;
+
+            if (frames % 600 === 0) {
+                speed += 0.2;
+                AudioSys.score();
+            }
+
+            // Spawn Spawn
+            const lastOb = obstacles[obstacles.length - 1];
+            if (!lastOb || (CANVAS_WIDTH - lastOb.x > (Math.random() * 100 + 80 * (speed / 2)))) {
+                let roll = Math.random();
+                if (roll < 0.02) spawnObstacle();
+                else if (roll < 0.023) spawnGem();
+                else if (roll < 0.025) spawnPowerup();
+            }
+
+            // Spawn clouds
+            if (Math.random() < 0.01) spawnCloud();
+
+            // Update Score
+            if (frames % 5 === 0) {
+                let points = 1;
+                if (dino.doubleScoreTime > 0) points *= 2;
+                score += points;
+                document.getElementById('score-display').innerText = score.toString().padStart(5, '0');
+            }
+
+            // Update UI Effects
+            let effectsText = "";
+            if (cheatMode) effectsText += "CHEAT ";
+            if (dino.shieldTime > 0) effectsText += "SHIELD ";
+            if (dino.doubleScoreTime > 0) effectsText += "2X ";
+            document.getElementById('effects-display').innerText = effectsText;
+
+
+            // 2. DRAW
+
+            // Clear Screen (Sky)
+            ctx.fillStyle = COLORS.sky;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            // Draw Clouds (Parallax)
+            ctx.fillStyle = COLORS.cloud;
+            for (let i = clouds.length - 1; i >= 0; i--) {
+                let c = clouds[i];
+                c.x -= c.speed;
+                ctx.fillRect(c.x, c.y, c.w, c.h);
+                ctx.fillRect(c.x + 8, c.y - 8, c.w - 16, 8);
+                if (c.x + c.w < 0) clouds.splice(i, 1);
+            }
+
+            // Draw Ground
+            groundOffset = (groundOffset + currentSpeed) % CANVAS_WIDTH;
+            ctx.fillStyle = COLORS.ground;
+            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
+
+            // Ground Texture (Scrolling pixels)
+            ctx.fillStyle = COLORS.groundDark;
+            for (let i = 0; i < CANVAS_WIDTH; i += 20) {
+                let gx = (i - Math.floor(groundOffset)) % CANVAS_WIDTH;
+                if (gx < 0) gx += CANVAS_WIDTH;
+                ctx.fillRect(gx, GROUND_Y + 4, 4, 2);
+                ctx.fillRect((gx + 10) % CANVAS_WIDTH, GROUND_Y + 12, 6, 2);
+            }
+
+            // Draw Dino
+            dino.draw();
+
+            // Projectiles
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                let p = projectiles[i];
+                p.x += p.dx;
+
+                // Draw (Square)
+                drawSprite(ctx, Sprites.projectile, p.x, p.y, 2, COLORS.projectile);
+
+                if (p.x > CANVAS_WIDTH) {
+                    projectiles.splice(i, 1);
+                    continue;
+                }
+
+                // Check Collision
+                let hit = false;
+                for (let j = obstacles.length - 1; j >= 0; j--) {
+                    let ob = obstacles[j];
+                    if (
+                        p.x < ob.x + ob.w &&
+                        p.x + p.w > ob.x &&
+                        p.y < ob.y &&
+                        p.y + p.h > ob.y - ob.h
+                    ) {
+                        obstacles.splice(j, 1);
+                        hit = true;
+                        spawnDust(ob.x + ob.w / 2, ob.y - ob.h / 2);
+                        AudioSys.collect();
+                        break;
+                    }
+                }
+                if (hit) projectiles.splice(i, 1);
+            }
+
+            // Gems
+            for (let i = gems.length - 1; i >= 0; i--) {
+                let g = gems[i];
+                g.x -= currentSpeed;
+                let by = g.y + Math.sin(frames * 0.1) * 5;
+                drawSprite(ctx, Sprites.gem, g.x, by - 14, 2, COLORS.gem);
+
+                // Gem uses Top-Left coords for y since we drew at by-14?
+                // Wait, drawSprite(x, y) draws at x,y.
+                // We passed g.x, by-14. So Top is by-14. Height 14.
+                // So Rect is {x: g.x, y: by-14, w: 14, h: 14, isTopLeft: true}
+
+                let gemRect = { x: g.x, y: by - 14 + 14, w: 14, h: 14 }; // Passing y as "Bottom" to match checkCollision default
+                let dinoRect = { x: dino.x, y: dino.y, w: dino.w, h: dino.h };
+
+                if (checkCollision(dinoRect, gemRect)) {
+                    score += g.value;
+                    AudioSys.collect();
+                    gems.splice(i, 1);
+                    continue;
+                }
+                if (g.x + 20 < 0) gems.splice(i, 1);
+            }
+
+            // Powerups
+            for (let i = powerups.length - 1; i >= 0; i--) {
+                let p = powerups[i];
+                p.x -= currentSpeed;
+                let by = p.y + Math.sin(frames * 0.1) * 5;
+                let sprite = p.type === 'shield' ? Sprites.shield : Sprites.double;
+                let col = p.type === 'shield' ? COLORS.shield : COLORS.double;
+
+                drawSprite(ctx, sprite, p.x, by - 14, 2, col);
+
+                let pRect = { x: p.x, y: by - 14 + 14, w: 14, h: 14 }; // y as Bottom
+                let dinoRect = { x: dino.x, y: dino.y, w: dino.w, h: dino.h };
+
+                if (checkCollision(dinoRect, pRect)) {
+                    AudioSys.powerup();
+                    if (p.type === 'shield') dino.shieldTime = 600;
+                    if (p.type === 'double') dino.doubleScoreTime = 600;
+                    powerups.splice(i, 1);
+                    continue;
+                }
+                if (p.x + 20 < 0) powerups.splice(i, 1);
+            }
+
+            // Obstacles
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let ob = obstacles[i];
+                ob.x -= currentSpeed;
+
+                let spriteToDraw = ob.sprite;
+                if (ob.type === 'bird') {
+                    spriteToDraw = (Math.floor(frames / 15) % 2 === 0) ? Sprites.bird1 : Sprites.bird2;
+                }
+
+                drawSprite(ctx, spriteToDraw, ob.x, ob.y - ob.h, ob.scale, ob.type === 'bird' ? COLORS.bird : COLORS.cactus);
+
+                let dinoRect = { x: dino.x, y: dino.y, w: dino.w, h: dino.h };
+                let obRect = { x: ob.x, y: ob.y, w: ob.w, h: ob.h };
+
+                if (checkCollision(dinoRect, obRect)) {
+                    if (!cheatMode && dino.shieldTime <= 0) {
+                        isPlaying = false;
+                        AudioSys.die();
+                        if (score > highScore) {
+                            highScore = score;
+                            document.getElementById('high-score-display').innerText = highScore.toString().padStart(5, '0');
+                        }
+                        document.getElementById('final-score').innerText = "SCORE: " + score;
+                        document.getElementById('game-over-screen').classList.remove('hidden');
+                        return;
+                    } else if (dino.shieldTime > 0) {
+                        dino.shieldTime = 0;
+                        obstacles.splice(i, 1);
+                        spawnDust(ob.x, ob.y - ob.h / 2);
+                        AudioSys.jump();
+                    }
+                }
+
+                if (ob.x + ob.w < 0) {
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            // Particles
+            ctx.fillStyle = "#ffffff";
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.dx;
+                p.y += p.dy;
+                p.life--;
+                if (p.life % 2 === 0) ctx.fillRect(p.x, p.y, 2, 2);
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+        }
+
+        /**
+         * INPUT HANDLING
+         */
+        function handleInput(e) {
+            if (!isPlaying) {
+                const gameOverVis = !document.getElementById('game-over-screen').classList.contains('hidden');
+                const startVis = !document.getElementById('start-screen').classList.contains('hidden');
+
+                if (startVis || gameOverVis) {
+                    resetGame();
+                }
+            }
+            // Even if playing, handle these:
+
+            if (!isPlaying) return; // Wait, we just handled reset above. Safe to return if not playing logic follows.
+
+            if (e.code === 'Space' || e.code === 'ArrowUp') {
+                dino.jump();
+                e.preventDefault();
+            }
+            if (e.code === 'KeyF' || e.code === 'KeyZ') {
+                dino.shoot();
+            }
+            if (e.code === 'KeyC') {
+                cheatMode = !cheatMode;
+            }
+            if (e.key >= '1' && e.key <= '4') {
+                dino.skinIdx = parseInt(e.key) - 1;
+            }
+        }
+
+        window.addEventListener('keydown', handleInput);
+
+        const wrapper = document.getElementById('game-wrapper');
+        const touchHandler = (e) => {
+            if (!isPlaying) {
+                resetGame();
+            } else {
+                dino.jump();
+                // Touch to shoot? Maybe right side?
+                // Simple: Touch = Jump.
+            }
+            e.preventDefault();
+        };
+        wrapper.addEventListener('mousedown', touchHandler);
+        wrapper.addEventListener('touchstart', touchHandler, { passive: false });
+
+        // Initial render call to show background before start
+        ctx.fillStyle = COLORS.sky;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        ctx.fillStyle = COLORS.ground;
+        ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
+        spawnCloud();
+
+    </script>
+</body>
+
+</html>
