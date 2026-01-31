@@ -159,6 +159,7 @@
             <p>DYSTOPIAN EDITION</p>
             <p style="color: #aaa; font-size: 10px;">SPACE / UP - JUMP</p>
             <p style="color: #aaa; font-size: 10px;">F - SHOOT | 1-4 - SKINS | C - CHEAT</p>
+            <p style="color: #888; font-size: 8px; margin-top: 10px;">MOBILE: TAP LEFT-SHOOT | RIGHT-JUMP</p>
             <p class="blink" id="start-btn">INSERT CREDITS</p>
         </div>
 
@@ -856,9 +857,23 @@
             if (!isPlaying) {
                 resetGame();
             } else {
-                dino.jump();
-                // Touch to shoot? Maybe right side?
-                // Simple: Touch = Jump.
+                // Get click/touch position relative to the element
+                const rect = wrapper.getBoundingClientRect();
+                let clientX = e.clientX;
+
+                // If it's a touch event, it might have multiple touches, take the first changed one
+                if (e.changedTouches && e.changedTouches.length > 0) {
+                    clientX = e.changedTouches[0].clientX;
+                }
+
+                const x = clientX - rect.left;
+
+                // Split screen controls: Left half Shoot, Right half Jump
+                if (x < rect.width / 2) {
+                    dino.shoot();
+                } else {
+                    dino.jump();
+                }
             }
             e.preventDefault();
         };
@@ -874,6 +889,5 @@
 
     </script>
 </body>
-
 
 </html>
