@@ -160,14 +160,14 @@
             <p style="color: #aaa; font-size: 10px;">SPACE / UP - JUMP</p>
             <p style="color: #aaa; font-size: 10px;">F - SHOOT | 1-4 - SKINS | C - CHEAT</p>
             <p style="color: #888; font-size: 8px; margin-top: 10px;">MOBILE: TAP LEFT-SHOOT | RIGHT-JUMP</p>
-            <p style="color: #888; font-size: 8px; margin-top: 10px;">BOSS WILL ARIVE AFTER 2000 POINT$</p>
             <p class="blink" id="start-btn">INSERT CREDITS</p>
         </div>
 
         <div id="game-over-screen" class="hidden">
-            <h1 style="color: #f00; text-shadow: 0 0 10px red;">SYSTEM FAILURE</h1>
+            <h1 class="blink">GAME OVER</h1>
             <p id="final-score">SCORE: 0</p>
-            <p class="blink" id="restart-btn" style="color: #f00;">REBOOT</p>
+            <p class="blink">PRESS SPACE TO RESTART</p>
+            <p style="margin-top: 20px; font-size: 10px; color: rgba(255,255,255,0.5);">DEVELOPED BY ORION</p>
         </div>
 
         <canvas id="gameCanvas"></canvas>
@@ -436,6 +436,7 @@
         let boss = { x: 0, y: 0, w: 40, h: 40, hp: 0, maxHp: 10, dy: 1 };
         let bossProjectiles = [];
         let timeSinceLastBoss = 0;
+        let bossKillCount = 0;
 
         // Entities
         let obstacles = [];
@@ -604,7 +605,7 @@
                 x: CANVAS_WIDTH + 20,
                 y: GROUND_Y,
                 type: type,
-                scale: 2,
+                scale: type === 'bird' ? 2.2 : 2, // Birds slightly bigger
                 dead: false,
                 isGlitch: (Math.random() > 0.8 && type === 'bird') // 20% chance for glitch bird
             };
@@ -740,32 +741,32 @@
 
             // Spawn Spawn
             // Spawn Logic (Only if Boss inactive)
-            if(!isBossActive) {
+            if (!isBossActive) {
                 // Check Boss Spawn
-                if(score > 500 && score % 500 < 100 && timeSinceLastBoss > 500) {
-                     // Spawn Boss
-                     isBossActive = true;
-                     boss.hp = boss.maxHp;
-                     boss.x = CANVAS_WIDTH - 60;
-                     boss.y = 50;
-                     boss.dy = 1;
-                     timeSinceLastBoss = 0;
-                     // Clear obstacles for fair fight
-                     obstacles = [];
-                     
-                     // Boss Warning
-                     let warning = document.createElement('div');
-                     warning.style.position = 'absolute';
-                     warning.style.top = '50%';
-                     warning.style.left = '50%';
-                     warning.style.transform = 'translate(-50%, -50%)';
-                     warning.style.color = '#ff0000';
-                     warning.style.fontFamily = "'Press Start 2P', monospace";
-                     warning.style.fontSize = '30px';
-                     warning.style.textShadow = '0 0 10px #ff0000';
-                     warning.innerText = "WARNING: GLITCH CORE";
-                     document.body.appendChild(warning);
-                     setTimeout(() => warning.remove(), 2000);
+                if (score > 2000 && score % 2000 < 100 && timeSinceLastBoss > 3000) {
+                    // Spawn Boss
+                    isBossActive = true;
+                    boss.hp = boss.maxHp;
+                    boss.x = CANVAS_WIDTH - 60;
+                    boss.y = 50;
+                    boss.dy = 1;
+                    timeSinceLastBoss = 0;
+                    // Clear obstacles for fair fight
+                    obstacles = [];
+
+                    // Boss Warning
+                    let warning = document.createElement('div');
+                    warning.style.position = 'absolute';
+                    warning.style.top = '50%';
+                    warning.style.left = '50%';
+                    warning.style.transform = 'translate(-50%, -50%)';
+                    warning.style.color = '#ff0000';
+                    warning.style.fontFamily = "'Press Start 2P', monospace";
+                    warning.style.fontSize = '30px';
+                    warning.style.textShadow = '0 0 10px #ff0000';
+                    warning.innerText = "WARNING: GLITCH CORE";
+                    document.body.appendChild(warning);
+                    setTimeout(() => warning.remove(), 2000);
                 } else {
                     const lastOb = obstacles[obstacles.length - 1];
                     if (!lastOb || (CANVAS_WIDTH - lastOb.x > (Math.random() * 100 + 80 * (speed / 2)))) {
@@ -778,51 +779,66 @@
             } else {
                 // Update Boss
                 boss.y += boss.dy;
-                if(boss.y < 20 || boss.y > 100) boss.dy *= -1;
-                
+                if (boss.y < 20 || boss.y > 100) boss.dy *= -1;
+
                 // Boss Shoot
-                if(Math.random() < 0.02) {
-                     bossProjectiles.push({
-                         x: boss.x,
-                         y: boss.y + 20,
-                         dx: -4,
-                         w: 12, h: 4
-                     });
-                     AudioSys.shoot(); 
+                if (Math.random() < 0.02) {
+                    bossProjectiles.push({
+                        x: boss.x,
+                        y: boss.y + 20,
+                        dx: -4,
+                        w: 12, h: 4
+                    });
+                    AudioSys.shoot();
                 }
-                
+
                 // Boss Collision (Player Proj vs Boss)
-                for(let i=projectiles.length-1; i>=0; i--) {
+                for (let i = projectiles.length - 1; i >= 0; i--) {
                     let p = projectiles[i];
-                    if(p.x + p.w > boss.x && p.x < boss.x + boss.w && p.y + p.h > boss.y && p.y < boss.y + boss.h) {
+                    if (p.x + p.w > boss.x && p.x < boss.x + boss.w && p.y + p.h > boss.y && p.y < boss.y + boss.h) {
                         boss.hp--;
                         projectiles.splice(i, 1);
                         screenShake = 5;
                         AudioSys.jump(); // Hit sound
                         // Boss Dead?
-                        if(boss.hp <= 0) {
+                        if (boss.hp <= 0) {
                             isBossActive = false;
-                            score += 1000;
+
+                            // Exponential Reward
+                            let reward = 1000 * Math.pow(2, bossKillCount);
+                            bossKillCount++;
+                            score += reward;
+
                             timeSinceLastBoss = 0;
                             screenShake = 20;
                             spawnDust(boss.x + 20, boss.y + 20); // Big Boom
+
+                            // Grand Text
+                            particles.push({
+                                x: boss.x - 20, y: boss.y,
+                                dx: 0, dy: -0.5,
+                                life: 120, // 2 seconds
+                                text: "+" + reward + "!!!",
+                                color: "#ffd700", // Gold
+                                isGrand: true
+                            });
                         }
                     }
                 }
             }
-            
-            if(!isBossActive) timeSinceLastBoss++;
+
+            if (!isBossActive) timeSinceLastBoss++;
 
             // Spawn clouds
             if (Math.random() < 0.01) spawnCloud();
 
             // Update Score
-            if (frames % 5 === 0) {
-                let points = 1;
-                if (dino.doubleScoreTime > 0) points *= 2;
-                score += points;
-                document.getElementById('score-display').innerText = score.toString().padStart(5, '0');
-            }
+            // Update Score
+            // Constant update
+            let points = 1;
+            if (dino.doubleScoreTime > 0) points *= 2;
+            score += points;
+            document.getElementById('score-display').innerText = score.toString().padStart(5, '0');
 
             // Update UI Effects
             let effectsText = "";
@@ -835,8 +851,12 @@
 
             // 2. DRAW
 
-            // Draw Sky
-            ctx.fillStyle = COLORS.sky;
+            // Draw Sky (Dynamic)
+            let skyColor = COLORS.sky;
+            if (score > 3000) skyColor = "#2f1010"; // Red (Boss Zone)
+            if (score > 6000) skyColor = "#000022"; // Deep Space
+
+            ctx.fillStyle = skyColor;
             ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
             // Screen Shake Apply
@@ -852,24 +872,34 @@
 
             // Draw Parallax City
             // Simple procedural city silhouette
-            ctx.fillStyle = "#1a0b1c"; // Darker than sky, silhouette
-            const cityOffset = (groundOffset * 0.2) % 40;
-            // We just draw rectangles at varying heights
-            // To make it scroll, we use an offset. 
-            // Ideally we need a persistent array. Let's cheat with a math function based on x + offset
-            for (let cx = 0; cx < CANVAS_WIDTH + 40; cx += 20) {
-                let h = 20 + Math.abs(Math.sin(cx * 0.1 + groundOffset * 0.05)) * 50;
-                if (cx % 60 === 0) h += 40; // Skyscrapers
-                let drawX = cx - (groundOffset * 0.2) % 20;
-                ctx.fillRect(drawX, GROUND_Y - h, 24, h);
+            // Draw Parallax City (Fixed)
+            ctx.fillStyle = "#1a0b1c";
+            const parallaxScroll = groundOffset * 0.2;
+            const blockWidth = 24;
+            // Determine which "blocks" of the city are visible
+            const startBlock = Math.floor(parallaxScroll / blockWidth);
+            const visibleBlocks = Math.ceil(CANVAS_WIDTH / blockWidth) + 1;
+
+            for (let i = startBlock; i < startBlock + visibleBlocks; i++) {
+                // Procedural generation based on Block Index 'i' (stable)
+                // Use a pseudo-random determinstic height based on i
+                let h = 20 + Math.abs(Math.sin(i * 132.1)) * 50;
+                if (i % 5 === 0) h += 60; // Skyscraper every 5th block
+                if (i % 3 === 0) h += 20;
+
+                let drawX = (i * blockWidth) - parallaxScroll;
+
+                ctx.fillRect(drawX, GROUND_Y - h, blockWidth + 1, h); // +1 overlap
 
                 // Windows
-                ctx.fillStyle = "#552255";
-                if (cx % 40 === 0) {
-                    for (let wy = GROUND_Y - h + 4; wy < GROUND_Y; wy += 8) {
-                        ctx.fillRect(drawX + 4, wy, 4, 4);
-                        ctx.fillRect(drawX + 12, wy, 4, 4);
+                ctx.fillStyle = "#331133";
+                if (i % 5 === 0) { // Skyscraper windows
+                    for (let wy = GROUND_Y - h + 10; wy < GROUND_Y - 10; wy += 10) {
+                        ctx.fillRect(drawX + 4, wy, 4, 6);
+                        ctx.fillRect(drawX + 14, wy, 4, 6);
                     }
+                } else if (i % 2 === 0 && h > 40) {
+                    ctx.fillRect(drawX + 8, GROUND_Y - h + 10, 8, 8);
                 }
                 ctx.fillStyle = "#1a0b1c";
             }
@@ -930,7 +960,21 @@
                         AudioSys.collect();
                         comboCount++;
                         // Bonus points for kill
-                        score += 10 * (1 + Math.floor(comboCount / 5));
+                        let killScore = 10 * (1 + Math.floor(comboCount / 5));
+                        if (ob.type === 'bird') {
+                            killScore += 20; // Bonus for bird
+                            // Floating Text
+                            particles.push({
+                                x: ob.x,
+                                y: ob.y - 20,
+                                dx: 0,
+                                dy: -1,
+                                life: 40,
+                                text: "+20",
+                                color: "#ffff00"
+                            });
+                        }
+                        score += killScore;
                         break;
                     }
                 }
@@ -993,14 +1037,14 @@
                 if (ob.type === 'bird') {
                     spriteToDraw = (Math.floor(frames / 15) % 2 === 0) ? Sprites.bird1 : Sprites.bird2;
                     // Glitch Bird Variant (Random Y fluctuation)
-                    if(ob.isGlitch) {
-                         ob.y += Math.sin(frames * 0.2) * 2;
-                         // Color flicker handled in draw? No, we need to pass color.
+                    if (ob.isGlitch) {
+                        ob.y += Math.sin(frames * 0.2) * 2;
+                        // Color flicker handled in draw? No, we need to pass color.
                     }
                 }
 
                 let color = ob.type === 'bird' ? COLORS.bird : COLORS.cactus;
-                if(ob.isGlitch) color = (Math.floor(frames/4)%2===0) ? "#ff00ff" : "#00ffff";
+                if (ob.isGlitch) color = (Math.floor(frames / 4) % 2 === 0) ? "#ff00ff" : "#00ffff";
 
                 drawSprite(ctx, spriteToDraw, ob.x, ob.y - ob.h, ob.scale, color);
 
@@ -1038,7 +1082,7 @@
             }
 
             // Draw Boss
-            if(isBossActive) {
+            if (isBossActive) {
                 // Draw Boss
                 drawSprite(ctx, Sprites.boss, boss.x, boss.y, 4, "#ff0000"); // Red Boss
                 // HP Bar
@@ -1046,22 +1090,22 @@
                 ctx.fillRect(boss.x, boss.y - 10, 40, 4);
                 ctx.fillStyle = "#ff0000";
                 ctx.fillRect(boss.x, boss.y - 10, 40 * (boss.hp / boss.maxHp), 4);
-                
+
                 // Draw Boss Proj
-                for(let i=bossProjectiles.length-1; i>=0; i--) {
+                for (let i = bossProjectiles.length - 1; i >= 0; i--) {
                     let bp = bossProjectiles[i];
                     bp.x += bp.dx;
                     ctx.fillStyle = "#ff0000";
                     ctx.fillRect(bp.x, bp.y, bp.w, bp.h);
-                    
-                    if(bp.x < 0) bossProjectiles.splice(i, 1);
-                    
+
+                    if (bp.x < 0) bossProjectiles.splice(i, 1);
+
                     // Hit Player?
-                    let pRect = {x: bp.x, y: bp.y + bp.h, w: bp.w, h: bp.h}; // y as bottom
+                    let pRect = { x: bp.x, y: bp.y + bp.h, w: bp.w, h: bp.h }; // y as bottom
                     let dinoRect = { x: dino.x, y: dino.y, w: dino.w, h: dino.h };
-                    if(checkCollision(dinoRect, pRect)) {
-                         if (!cheatMode && dino.shieldTime <= 0) {
-                             // Copied death logic
+                    if (checkCollision(dinoRect, pRect)) {
+                        if (!cheatMode && dino.shieldTime <= 0) {
+                            // Copied death logic
                             isPlaying = false;
                             AudioSys.die();
                             if (navigator.vibrate) navigator.vibrate(300);
@@ -1075,14 +1119,14 @@
                             document.getElementById('final-score').innerText = "SCORE: " + score;
                             document.getElementById('game-over-screen').classList.remove('hidden');
                             return;
-                         } else if (dino.shieldTime > 0) {
-                             bossProjectiles.splice(i, 1);
-                             dino.shieldTime = 0;
-                         }
+                        } else if (dino.shieldTime > 0) {
+                            bossProjectiles.splice(i, 1);
+                            dino.shieldTime = 0;
+                        }
                     }
                 }
             }
-            
+
             // Particles
             for (let i = particles.length - 1; i >= 0; i--) {
                 let p = particles[i];
@@ -1091,7 +1135,22 @@
                 p.life--;
 
                 ctx.fillStyle = p.color || "#ffffff";
-                if (p.life > 0) ctx.fillRect(p.x, p.y, 2, 2);
+
+                if (p.text) {
+                    // Draw Floating Text
+                    if (p.isGrand) {
+                        ctx.font = "20px 'Press Start 2P'";
+                        ctx.fillStyle = p.color;
+                        ctx.fillText(p.text, p.x, p.y);
+                    } else {
+                        ctx.font = "10px 'Press Start 2P'";
+                        ctx.fillStyle = p.color;
+                        ctx.fillText(p.text, p.x, p.y);
+                    }
+                } else {
+                    // Draw Square Particle
+                    if (p.life > 0) ctx.fillRect(p.x, p.y, 2, 2);
+                }
 
                 if (p.life <= 0) particles.splice(i, 1);
             }
@@ -1133,16 +1192,16 @@
                 cheatMode = !cheatMode;
             }
             if (e.key >= '1' && e.key <= '4') {
-                 let idx = parseInt(e.key) - 1;
-                 // Skin Unlocks: 0 (Green) always, 1 (Cyan) > 1000, 2 (Pink) > 2500, 3 (White) > 5000
-                 let required = [0, 1000, 2500, 5000];
-                 if(highScore >= required[idx]) {
-                     dino.skinIdx = idx;
-                     if(navigator.vibrate) navigator.vibrate(50);
-                 } else {
-                     // Locked feedback?
-                     if(navigator.vibrate) navigator.vibrate([50,50,50]); // Error buzz
-                 }
+                let idx = parseInt(e.key) - 1;
+                // Skin Unlocks: 0 (Green) always, 1 (Cyan) > 1000, 2 (Pink) > 2500, 3 (White) > 5000
+                let required = [0, 1000, 2500, 5000];
+                if (highScore >= required[idx]) {
+                    dino.skinIdx = idx;
+                    if (navigator.vibrate) navigator.vibrate(50);
+                } else {
+                    // Locked feedback?
+                    if (navigator.vibrate) navigator.vibrate([50, 50, 50]); // Error buzz
+                }
             }
         }
 
@@ -1227,5 +1286,3 @@
 </body>
 
 </html>
-
-
